@@ -1,0 +1,10 @@
+{
+  "name": "w-reader-openidea",
+  "private": true,
+  "scripts": {
+    "test": "node tests/reader.test.cjs && node tests/epub.test.cjs && node tests/memory.test.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  }
+}
