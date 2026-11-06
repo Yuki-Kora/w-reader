@@ -1,6 +1,6 @@
 id = "w-reader.openidea"
 name = "W-Reader for OpenIDEA"
-version = "0.4.7"
+version = "0.4.9"
 description = "Local text reading in an OpenIDEA tool window, inspired by W-Reader."
 authors = ["W-Reader for OpenIDEA contributors"]
 license = "Apache-2.0"

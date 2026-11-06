@@ -25,7 +25,7 @@ function start() {
   element('page-text').firstChild = pageNode;
   element('page-text').getBoundingClientRect = () => ({ top: -100, bottom: 300, left: 10 });
   const documentHandlers = {};
-  const document = { getElementById: element, createElement() { return element(Symbol()); },
+  const document = { getElementById: element, querySelectorAll(selector) { return selector === '.view-back' ? [element('view-back')] : []; }, createElement() { return element(Symbol()); },
     caretPositionFromPoint() { return { offsetNode: pageNode, offset: visibleOffset }; },
     createRange() { return { setStart(node, offset) { restoredOffset = offset; }, collapse() {}, getBoundingClientRect() { if (emptyRects > 0) { emptyRects--; return { top: 0, bottom: 0, width: 0, height: 0 }; } return { top: 20, bottom: 40, width: 0, height: 20 }; } }; },
     documentElement: { style: { setProperty() {} } }, addEventListener(type, fn) { documentHandlers[type] = fn; } };
@@ -38,7 +38,7 @@ function start() {
     });
   } };
   const window = { parent, innerHeight: 600, innerWidth: 400, addEventListener(type, fn) { handlers[type] = fn; }, clearTimeout, setTimeout,
-    requestAnimationFrame(fn) { return setTimeout(fn, 0); }, cancelAnimationFrame: clearTimeout, scrollBy() { scrollCalls++; }, scrollTo() {},
+    requestAnimationFrame(fn) { return setTimeout(fn, 0); }, cancelAnimationFrame: clearTimeout, scrollBy() { scrollCalls++; visibleOffset = restoredOffset; }, scrollTo() { visibleOffset = 0; },
     openidea: { openFile: async () => null } };
   vm.runInNewContext(script, { window, document, TextDecoder, Uint8Array, Map, Promise });
   return { element, window, delayLayout(frames) { emptyRects = frames; }, getScrollCalls() { return scrollCalls; }, hostVisible(value) { handlers.message({ source: parent, data: { tag: 'openidea-view', viewVisible: value } }); }, exportLog() { documentHandlers.keydown({ key: 'D', ctrlKey: true, shiftKey: true, preventDefault() {} }); }, useLegacyCaret() { delete document.caretPositionFromPoint; document.caretRangeFromPoint = () => ({ startContainer: pageNode, startOffset: visibleOffset }); }, scrollToOffset(offset) { visibleOffset = offset; handlers.scroll(); }, resize(width, height) { window.innerWidth = width; window.innerHeight = height; handlers.resize(); }, getRestoredOffset() { return restoredOffset; } };
@@ -64,22 +64,23 @@ async function run() {
   app.hostVisible(true); await new Promise(resolve => setTimeout(resolve, 60));
   assert.equal(app.getRestoredOffset(), 8);
   assert.equal(app.getScrollCalls(), beforeRestore + 1);
-  app.element('toc-panel').open = true; app.element('toc-panel').toggle(); await settle();
+  app.element('show-toc').click(); assert.equal(app.element('toc-view').hidden, false);
+  await settle();
+  app.element('view-back').click(); assert.equal(app.element('reading-view').hidden, false);
   app.window.openidea.openFile = async () => ({ name: 'b.txt', data: new TextEncoder().encode('另一本') });
   app.element('open-file').click(); await settle();
   assert.equal(JSON.parse(storage.content).length, 2);
   app = start(); await settle();
   assert.equal(app.element('file-name').textContent, 'b.txt');
-  const aId = app.element('library-books').children[0].value;
-  app.element('library-books').value = aId; app.element('library-open').click(); await settle();
+  app.element('library-list').children[0].children[0].click(); await settle();
   assert.equal(app.element('file-name').textContent, 'a.txt');
   assert.ok(app.element('page-text').textContent.startsWith('第2章'));
   assert.equal(app.getRestoredOffset(), 8);
-  assert.equal(app.element('toc-panel').open, true);
+  app.element('show-library').click(); assert.equal(app.element('library-view').hidden, false);
   app.element('library-delete').click(); await settle();
   assert.equal(JSON.parse(storage.content).length, 1);
   app = start(); await settle();
-  assert.equal(app.element('library-books').children.length, 1);
+  assert.equal(app.element('library-list').children.length, 1);
   console.log('memory tests passed');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

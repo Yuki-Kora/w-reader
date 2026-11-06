@@ -15,7 +15,8 @@ function element(id) {
 }
 const document = {
   getElementById: element,
-  createElement() { return { addEventListener(type, callback) { this[type] = callback; }, setAttribute(name, value) { this[name] = value; } }; },
+  querySelectorAll(selector) { return selector === '.view-back' ? [element('view-back')] : []; },
+  createElement() { return { children: [], addEventListener(type, callback) { this[type] = callback; }, setAttribute(name, value) { this[name] = value; }, appendChild(child) { this.children.push(child); } }; },
   documentElement: { style: { setProperty() {} } },
   addEventListener() {},
 };
@@ -49,12 +50,23 @@ async function test() {
   assert.equal(element('file-kind').textContent, 'EPUB');
   assert.equal(element('page-text').textContent, 'EPUB 正文');
   assert.equal(element('toc-list').children[0].textContent, '开篇');
+  element('show-toc').click();
+  assert.equal(element('toc-view').hidden, false);
+  assert.equal(element('reading-view').hidden, true);
+  element('view-back').click();
+  assert.equal(element('reading-view').hidden, false);
+  element('show-library').click();
+  assert.equal(element('library-view').hidden, false);
+  assert.equal(element('reading-view').hidden, true);
+  element('view-back').click();
+  assert.equal(element('reading-view').hidden, false);
   element('toc-list').children[0].click();
   assert.equal(element('page-current').textContent, '1');
   const html = fs.readFileSync(require('node:path').join(__dirname, '../web/index.html'), 'utf8');
   const css = fs.readFileSync(require('node:path').join(__dirname, '../web/reader.css'), 'utf8');
-  assert.match(html, /id="toc-panel"/);
-  assert.doesNotMatch(css, /\.toc nav\s*\{[^}]*\b(?:overflow|max-height)\s*:/);
+  assert.match(html, /id="toc-view"[^>]*hidden/);
+  assert.match(html, /id="library-view"[^>]*hidden/);
+  assert.match(fs.readFileSync(require('node:path').join(__dirname, '../web/reader.js'), 'utf8'), /function showView/);
   assert.doesNotMatch(css, /\.page-text\s*\{[^}]*\b(?:overflow\s*:|max-height\s*:)/);
   const chapterText = '引子\n前文\n第1章 开始\n章节内容\n\nChapter 2 End\n后续';
   window.openidea.openFile = async () => ({ name: 'chapters.txt', data: new TextEncoder().encode(chapterText) });

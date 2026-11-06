@@ -18,6 +18,7 @@
   var scrollTimer;
   var viewWasHidden = false;
   var hostHidden = false;
+  var activeView = "welcome";
 
   // The sandbox has an opaque origin. Storage is mediated by the IDE, never by
   // direct access to its localStorage or to arbitrary filesystem paths.
@@ -27,7 +28,7 @@
     if (typeof message.viewVisible === "boolean") {
       var wasHidden = hostHidden;
       hostHidden = !message.viewVisible;
-      if (wasHidden && !hostHidden) {
+      if (wasHidden && !hostHidden && activeView === "reading-view") {
         var book = library.find(function (item) { return item.id === currentId; });
         if (book) restorePosition(book);
       }
@@ -57,23 +58,41 @@
     save("state", { currentId: currentId, positions: positions });
   }
   function refreshLibrary() {
-    var select = $("library-books"); select.textContent = "";
+    var list = $("library-list"); list.textContent = "";
     library.forEach(function (book) {
-      var option = document.createElement("option"); option.value = book.id; option.textContent = book.name; select.appendChild(option);
+      var row = document.createElement("div"); row.className = "library-row";
+      var open = document.createElement("button"); open.type = "button"; open.className = "toc-item"; open.textContent = book.name;
+      open.addEventListener("click", function () { displayBook(book); }); row.appendChild(open); list.appendChild(row);
     });
-    $("library").hidden = library.length === 0;
-    if (currentId) select.value = currentId;
+    $("library-delete").hidden = !currentId;
+  }
+  function showView(id, skipRestore) {
+    if (activeView === 'reading-view' && id !== 'reading-view') {
+      if (scrollTimer) { window.clearTimeout(scrollTimer); scrollTimer = 0; }
+      if (restoreFrame) {
+        if (window.cancelAnimationFrame) window.cancelAnimationFrame(restoreFrame);
+        restoreFrame = 0; // Keep the last committed offset; the pending restore has not settled.
+      } else rememberPosition(true);
+    }
+    ["welcome", "reading-view", "toc-view", "library-view"].forEach(function (view) { $(view).hidden = view !== id; });
+    var returningToReading = id === 'reading-view' && (activeView === 'toc-view' || activeView === 'library-view');
+    activeView = id;
+    if (!skipRestore && returningToReading && currentId) { var activeBook = library.find(function (book) { return book.id === currentId; }); if (activeBook) restorePosition(activeBook); }
   }
   function displayBook(book) {
+    if (activeView === "reading-view" && currentId !== book.id) {
+      if (scrollTimer) { window.clearTimeout(scrollTimer); scrollTimer = 0; }
+      if (!restoreFrame) rememberPosition(true);
+      else { if (window.cancelAnimationFrame) window.cancelAnimationFrame(restoreFrame); restoreFrame = 0; }
+    }
     currentId = book.id;
     chapters = book.chapters;
     pages = splitPages(book.text, chapters);
     setChapters(chapters, book.epub);
     pageIndex = Math.max(0, Math.min(Number(book.page) || 0, pages.length - 1));
-    $("toc-panel").open = !!book.tocOpen;
     $("file-name").textContent = book.name;
     $("file-kind").textContent = book.epub ? "EPUB" : "TXT";
-    $("welcome").hidden = true; $("reading-view").hidden = false;
+    showView("reading-view", true);
     refreshLibrary(); renderPage();
     restorePosition(book);
   }
@@ -151,8 +170,8 @@
 
   // Store a character position rather than pixels: it remains meaningful when
   // the view width or font size changes and a line wraps differently.
-  function rememberPosition() {
-    if (restoring || restoreFrame || hostHidden || !currentId) return;
+  function rememberPosition(commitNow) {
+    if (restoring || restoreFrame || hostHidden || !currentId || activeView !== 'reading-view') return;
     if (typeof window.innerHeight === "number" && window.innerHeight === 0) return;
     var text = $("page-text"), node = text.firstChild;
     if (!node || !text.getBoundingClientRect) return;
@@ -171,7 +190,12 @@
     } else if (rect.bottom <= 0) offset = node.length;
     book.offset = Math.max(0, Math.min(offset, node.length));
     window.clearTimeout(scrollTimer);
-    scrollTimer = window.setTimeout(saveProgress, 250);
+    var observedBook = currentId;
+    if (commitNow) { scrollTimer = 0; saveProgress(); }
+    else scrollTimer = window.setTimeout(function () {
+      scrollTimer = 0;
+      if (activeView === 'reading-view' && currentId === observedBook && !hostHidden) saveProgress();
+    }, 250);
   }
 
   function restorePosition(book) {
@@ -212,7 +236,6 @@
   function setChapters(entries, recognized) {
     chapters = entries || [];
     var list = $("toc-list"); list.textContent = "";
-    $("toc-count").textContent = chapters.length ? chapters.length + " 章" : "";
     $("toc-empty").hidden = chapters.length > 0;
     $("toc-empty").textContent = recognized ? "未识别到章节标题，暂时无法跳转。" : "未识别到章节标题，TXT 可按“第X章”或“Chapter X”格式尝试。";
     chapters.forEach(function (chapter, index) {
@@ -222,6 +245,8 @@
         var offset = chapter.offset, total = 0;
         pageIndex = pages.findIndex(function (page) { var found = total <= offset && offset < total + page.length; total += page.length; return found; });
         if (pageIndex < 0) pageIndex = 0;
+        // Reveal and render the destination before scrolling it into view.
+        showView("reading-view", true);
         showPage();
       });
       list.appendChild(button);
@@ -280,16 +305,24 @@
   }
 
   $("open-file").addEventListener("click", openLocalFile);
-  $("library-open").addEventListener("click", function () { var book = library.find(function (item) { return item.id === $("library-books").value; }); if (book) displayBook(book); });
+  $("library-open").addEventListener("click", function () { showView("library-view"); refreshLibrary(); $("library-title").focus(); });
   $("library-delete").addEventListener("click", function () {
-    var id = $("library-books").value;
+    var id = currentId;
     library = library.filter(function (book) { return book.id !== id; });
-    if (currentId === id) { currentId = null; $("welcome").hidden = false; $("reading-view").hidden = true; }
+    if (currentId === id) { currentId = null; showView("library-view"); }
     refreshLibrary(); save("content", library);
     var positions = {}; library.forEach(function (book) { positions[book.id] = { page: book.page || 0, offset: book.offset || 0, tocOpen: !!book.tocOpen }; });
     save("state", { currentId: currentId, positions: positions });
   });
-  $("toc-panel").addEventListener("toggle", function () { var book = library.find(function (item) { return item.id === currentId; }); if (book) { book.tocOpen = $("toc-panel").open; saveProgress(); } });
+  $("show-toc").addEventListener("click", function () {
+    showView("toc-view");
+    $("toc-title").focus();
+    var current = $("toc-list").children[currentChapterIndex()];
+    if (current && typeof current.scrollIntoView === "function") current.scrollIntoView({ block: "center" });
+  });
+  $("show-library").addEventListener("click", function () { showView("library-view"); refreshLibrary(); });
+  $("reader-back").addEventListener("click", function () { showView("welcome"); });
+  Array.from(document.querySelectorAll ? document.querySelectorAll(".view-back") : []).forEach(function (button) { button.addEventListener("click", function () { showView(currentId ? "reading-view" : "welcome"); }); });
   $("welcome-open").addEventListener("click", openLocalFile);
   $("prev-page").addEventListener("click", function () { if (pageIndex > 0) { pageIndex -= 1; showPage(); } });
   $("next-page").addEventListener("click", function () { if (pageIndex < pages.length - 1) { pageIndex += 1; showPage(); } });
@@ -305,7 +338,7 @@
   });
   if (window.addEventListener) window.addEventListener("pagehide", saveProgress);
   document.addEventListener("keydown", function (event) {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (activeView !== "reading-view" || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === "ArrowLeft" && pageIndex > 0) { pageIndex -= 1; showPage(); }
     if (event.key === "ArrowRight" && pageIndex < pages.length - 1) { pageIndex += 1; showPage(); }
   });
